@@ -36,6 +36,216 @@ void RimeCandidateWord::forget(RimeState *state) const {
 #endif
 }
 
+namespace {
+
+class RimeMultiPageCandidateWord : public CandidateWord {
+public:
+    RimeMultiPageCandidateWord(RimeEngine *engine,
+                               const RimeCandidate &candidate,
+                               int globalIdx)
+        : engine_(engine), globalIdx_(globalIdx) {
+        setText(Text{candidate.text});
+        if (candidate.comment && candidate.comment[0]) {
+            setComment(Text{candidate.comment});
+        }
+    }
+
+    void select(InputContext *inputContext) const override {
+        if (auto *state = engine_->state(inputContext)) {
+            state->selectCandidate(inputContext, globalIdx_,
+                                   /*global=*/true);
+        }
+    }
+
+    int globalIdx() const { return globalIdx_; }
+
+private:
+    RimeEngine *engine_;
+    int globalIdx_;
+};
+
+// Collect candidates for a given page using the Rime API.
+// Returns the number of candidates collected.
+int collectPageCandidates(rime_api_t *api, RimeSessionId session, int pageNum,
+                          int pageSize,
+                          const RimeContext *currentContext,
+                          int numSelectKeys, const char *selectKeys,
+                          std::vector<Text> &labels,
+                          std::vector<std::unique_ptr<CandidateWord>> &words,
+                          RimeEngine *engine) {
+    if (currentContext && pageNum == currentContext->menu.page_no) {
+        // Use the current context for the current page.
+        const auto &menu = currentContext->menu;
+        bool hasLabel =
+            RIME_STRUCT_HAS_MEMBER(*currentContext,
+                                   currentContext->select_labels) &&
+            currentContext->select_labels;
+        int count = menu.num_candidates;
+        for (int i = 0; i < count; i++) {
+            std::string label;
+            if (i < menu.page_size && hasLabel) {
+                label = currentContext->select_labels[i];
+            } else if (i < numSelectKeys) {
+                label = std::string(1, selectKeys[i]);
+            } else {
+                label = std::to_string((i + 1) % 10);
+            }
+            label.append(" ");
+            labels.emplace_back(label);
+            words.emplace_back(std::make_unique<RimeMultiPageCandidateWord>(
+                engine, menu.candidates[i], pageNum * pageSize + i));
+        }
+        return count;
+    }
+
+    // For non-current pages, use the candidate list iterator.
+    int startIdx = pageNum * pageSize;
+    RimeCandidateListIterator iter;
+    if (!api->candidate_list_from_index(session, &iter, startIdx)) {
+        return 0;
+    }
+    int count = 0;
+    for (int i = 0; i < pageSize; i++) {
+        if (!api->candidate_list_next(&iter)) {
+            break;
+        }
+        std::string label;
+        if (i < numSelectKeys) {
+            label = std::string(1, selectKeys[i]);
+        } else {
+            label = std::to_string((i + 1) % 10);
+        }
+        label.append(" ");
+        labels.emplace_back(label);
+        words.emplace_back(std::make_unique<RimeMultiPageCandidateWord>(
+            engine, iter.candidate, startIdx + i));
+        count++;
+    }
+    api->candidate_list_end(&iter);
+    return count;
+}
+
+} // namespace
+
+RimeMultiPageCandidateList::RimeMultiPageCandidateList(
+    RimeEngine *engine, InputContext *ic, const RimeContext &currentContext,
+    int windowStart, int windowSize)
+    : engine_(engine), ic_(ic),
+      pageSize_(currentContext.menu.page_size),
+      currentPage_(currentContext.menu.page_no) {
+    setPageable(this);
+    setActionable(this);
+    setMultiPage(this);
+
+    const auto &menu = currentContext.menu;
+    int numSelectKeys =
+        menu.select_keys ? strlen(menu.select_keys) : 0;
+    const char *selectKeys = menu.select_keys;
+
+    auto *api = engine_->api();
+    auto session = engine_->state(ic_)->session(false);
+
+    // Determine the actual window range.
+    int endPage = windowStart + windowSize;
+
+    // Collect candidates for each page in the window.
+    for (int p = windowStart; p < endPage; p++) {
+        // Record page start before adding candidates for this page.
+        pageStarts_.push_back(candidateWords_.size());
+
+        int collected = collectPageCandidates(
+            api, session, p, pageSize_,
+            (p == currentPage_) ? &currentContext : nullptr, numSelectKeys,
+            selectKeys, labels_, candidateWords_, engine_);
+
+        if (collected == 0) {
+            // No more candidates. Remove the page start we just added
+            // and stop.
+            pageStarts_.pop_back();
+            endPage = p;
+            break;
+        }
+
+        // Track the active page.
+        if (p == currentPage_) {
+            activePage_ = pageStarts_.size() - 1;
+            // Set cursor to the highlighted candidate on the current page.
+            int localCursor = menu.highlighted_candidate_index;
+            if (localCursor >= 0) {
+                cursor_ = pageStarts_.back() + localCursor;
+            }
+        }
+    }
+
+    // Determine hasPrev / hasNext based on whether there are more pages
+    // outside the window.
+    hasPrev_ = windowStart > 0;
+    // hasNext: there's at least one candidate on the page after the window.
+    if (endPage > windowStart) {
+        int nextPageStart = endPage * pageSize_;
+        RimeCandidateListIterator iter;
+        hasNext_ = api->candidate_list_from_index(session, &iter,
+                                                   nextPageStart) &&
+                   api->candidate_list_next(&iter);
+        if (hasNext_) {
+            api->candidate_list_end(&iter);
+        }
+    } else {
+        hasNext_ = false;
+    }
+}
+
+void RimeMultiPageCandidateList::prev() {
+    KeyEvent event(ic_, Key(FcitxKey_Page_Up));
+    if (auto state = engine_->state(ic_)) {
+        state->keyEvent(event);
+    }
+}
+
+void RimeMultiPageCandidateList::next() {
+    KeyEvent event(ic_, Key(FcitxKey_Page_Down));
+    if (auto state = engine_->state(ic_)) {
+        state->keyEvent(event);
+    }
+}
+
+bool RimeMultiPageCandidateList::hasAction(
+    const CandidateWord & /*candidate*/) const {
+#ifndef FCITX_RIME_NO_DELETE_CANDIDATE
+    return true;
+#else
+    return false;
+#endif
+}
+
+std::vector<CandidateAction>
+RimeMultiPageCandidateList::candidateActions(
+    const CandidateWord & /*candidate*/) const {
+    std::vector<CandidateAction> actions;
+#ifndef FCITX_RIME_NO_DELETE_CANDIDATE
+    CandidateAction action;
+    action.setId(0);
+    action.setText(_("Forget word"));
+    actions.push_back(std::move(action));
+#endif
+    return actions;
+}
+
+void RimeMultiPageCandidateList::triggerAction(
+    const CandidateWord &candidate, int id) {
+    if (id != 0) {
+        return;
+    }
+    if (auto state = engine_->state(ic_)) {
+#ifndef FCITX_RIME_NO_DELETE_CANDIDATE
+        if (const auto *multiCandidate =
+                dynamic_cast<const RimeMultiPageCandidateWord *>(&candidate)) {
+            state->deleteCandidate(multiCandidate->globalIdx(),
+                                   /*global=*/true);
+        }
+#endif
+    }
+}
 RimeGlobalCandidateWord::RimeGlobalCandidateWord(RimeEngine *engine,
                                                  const RimeCandidate &candidate,
                                                  int idx)
@@ -190,3 +400,4 @@ void RimeCandidateList::setGlobalCursorIndex(int index) {
 }
 #endif
 } // namespace fcitx::rime
+

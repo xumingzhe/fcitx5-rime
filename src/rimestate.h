@@ -69,6 +69,11 @@ private:
     std::string savedCurrentSchema_;
     std::vector<std::string> savedOptions_;
     std::vector<std::string> changedOptions_;
+
+    // Multi-page candidate state.
+    bool multiPageActive_ = false;
+    int multiPageWindowStart_ = 0;
+    int lastPageNo_ = -1;
 };
 } // namespace fcitx::rime
 

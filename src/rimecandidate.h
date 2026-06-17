@@ -121,6 +121,62 @@ private:
     mutable std::vector<std::unique_ptr<RimeGlobalCandidateWord>>
         globalCandidateWords_;
 };
+
+class RimeMultiPageCandidateList final : public CandidateList,
+                                          public PageableCandidateList,
+                                          public ActionableCandidateList,
+                                          public MultiPageCandidateList {
+public:
+    RimeMultiPageCandidateList(RimeEngine *engine, InputContext *ic,
+                               const RimeContext &currentContext,
+                               int windowStart, int windowSize);
+
+    // CandidateList
+    const Text &label(int idx) const override {
+        return labels_[idx];
+    }
+    const CandidateWord &candidate(int idx) const override {
+        return *candidateWords_[idx];
+    }
+    int size() const override { return candidateWords_.size(); }
+    int cursorIndex() const override { return cursor_; }
+    CandidateLayoutHint layoutHint() const override {
+        return CandidateLayoutHint::Horizontal;
+    }
+
+    // PageableCandidateList
+    bool hasPrev() const override { return hasPrev_; }
+    bool hasNext() const override { return hasNext_; }
+    void prev() override;
+    void next() override;
+    bool usedNextBefore() const override { return true; }
+
+    // ActionableCandidateList
+    bool hasAction(const CandidateWord &candidate) const override;
+    std::vector<CandidateAction>
+    candidateActions(const CandidateWord &candidate) const override;
+    void triggerAction(const CandidateWord &candidate, int id) override;
+
+    // MultiPageCandidateList
+    int pageCount() const override { return pageStarts_.size(); }
+    int pageStart(int page) const override { return pageStarts_[page]; }
+    int activePage() const override { return activePage_; }
+
+    const auto &labels() const { return labels_; }
+
+private:
+    RimeEngine *engine_;
+    InputContext *ic_;
+    std::vector<Text> labels_;
+    std::vector<std::unique_ptr<CandidateWord>> candidateWords_;
+    int cursor_ = -1;
+    int pageSize_ = 0;
+    int currentPage_ = 0; // page number within Rime (0-based)
+    std::vector<int> pageStarts_;
+    int activePage_ = -1; // index into pageStarts_
+    bool hasPrev_ = false;
+    bool hasNext_ = false;
+};
 } // namespace fcitx::rime
 
 #endif // _FCITX_RIMECANDIDATE_H_

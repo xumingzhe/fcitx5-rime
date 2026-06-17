@@ -111,7 +111,14 @@ FCITX_CONFIGURATION(
         isApple() ? fcitx::KeyList{fcitx::Key("Control+Alt+grave")}
                   : fcitx::KeyList{}};
     fcitx::Option<fcitx::KeyList> synchronize{
-        this, "Synchronize", _("Synchronize"), {}};);
+        this, "Synchronize", _("Synchronize"), {}};
+    fcitx::Option<bool> multiPageEnabled{
+        this, "MultiPageEnabled",
+        _("Multi-page candidates (forces horizontal layout)"), false};
+    fcitx::Option<int, fcitx::IntConstrain> multiPageCount{
+        this, "MultiPageCount",
+        _("Number of visible pages in multi-page mode"), 5,
+        fcitx::IntConstrain(1, 10)};);
 
 class RimeEngine final : public InputMethodEngineV2 {
 public:

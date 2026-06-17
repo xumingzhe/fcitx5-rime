@@ -75,6 +75,8 @@ RimeSessionId RimeState::session(bool requestNewSession) {
 }
 
 void RimeState::clear() {
+    multiPageActive_ = false;
+    lastPageNo_ = -1;
     if (auto session = this->session()) {
         engine_->api()->clear_composition(session);
     }
@@ -227,6 +229,9 @@ void RimeState::keyEvent(KeyEvent &event) {
         engine_->instance()->resetCompose(ic);
     }
 
+    // Multi-page activation is handled in updateUI() by detecting
+    // page changes, which works with any key binding configuration.
+
     updateUI(ic, event.isRelease());
     if (!event.isRelease() && !lastSchema.empty() &&
         lastSchema == currentSchema() && ic->inputPanel().empty() &&
@@ -250,12 +255,14 @@ void RimeState::selectCandidate(InputContext *inputContext, int idx,
     } else {
         api->select_candidate_on_current_page(session, idx);
     }
+    multiPageActive_ = false;
     RIME_STRUCT(RimeCommit, commit);
     if (api->get_commit(session, &commit)) {
         inputContext->commitString(commit.text);
         api->free_commit(&commit);
     }
     updateUI(inputContext, false);
+    lastPageNo_ = -1;
 }
 
 #ifndef FCITX_RIME_NO_DELETE_CANDIDATE
@@ -408,9 +415,43 @@ void RimeState::updateUI(InputContext *ic, bool keyRelease) {
         updatePreedit(ic, context);
 
         if (context.menu.num_candidates) {
-            ic->inputPanel().setCandidateList(
-                std::make_unique<RimeCandidateList>(engine_, ic, context));
+            // Detect page change to activate multi-page mode.
+            // This works with any key binding (Up/Down, Page_Up/Page_Down,
+            // comma/period, etc.) as long as Rime interprets it as page
+            // navigation and changes the page number.
+            if (*engine_->config().multiPageEnabled &&
+                lastPageNo_ >= 0 &&
+                context.menu.page_no != lastPageNo_ &&
+                !multiPageActive_) {
+                multiPageActive_ = true;
+                multiPageWindowStart_ = 0;
+            }
+            lastPageNo_ = context.menu.page_no;
+
+            bool useMultiPage =
+                multiPageActive_ && *engine_->config().multiPageEnabled;
+            if (useMultiPage) {
+                int visiblePages = *engine_->config().multiPageCount;
+                int currentPage = context.menu.page_no;
+                // Scroll the window if the current page is outside.
+                if (currentPage >= multiPageWindowStart_ + visiblePages) {
+                    multiPageWindowStart_ =
+                        currentPage - visiblePages + 1;
+                } else if (currentPage < multiPageWindowStart_) {
+                    multiPageWindowStart_ = currentPage;
+                }
+                ic->inputPanel().setCandidateList(
+                    std::make_unique<RimeMultiPageCandidateList>(
+                        engine_, ic, context, multiPageWindowStart_,
+                        visiblePages));
+            } else {
+                ic->inputPanel().setCandidateList(
+                    std::make_unique<RimeCandidateList>(engine_, ic,
+                                                        context));
+            }
         } else {
+            multiPageActive_ = false;
+            lastPageNo_ = -1;
             ic->inputPanel().setCandidateList(nullptr);
         }
 
@@ -437,7 +478,11 @@ void RimeState::updateUI(InputContext *ic, bool keyRelease) {
     }
 }
 
-void RimeState::release() { session_.reset(); }
+void RimeState::release() {
+    multiPageActive_ = false;
+    lastPageNo_ = -1;
+    session_.reset();
+}
 
 void RimeState::commitInput(InputContext *ic) {
     if (auto *api = engine_->api()) {
