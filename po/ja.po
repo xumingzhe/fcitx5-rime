@@ -133,3 +133,11 @@ msgstr "同期"
 #: src/rimeengine.h:100
 msgid "User data dir"
 msgstr "ユーザーデータディレクトリ"
+
+#: src/rimeengine.h:115
+msgid "Multi-page candidates (forces horizontal layout)"
+msgstr "複数ページ候補（横方向レイアウトを強制）"
+
+#: src/rimeengine.h:118
+msgid "Number of visible pages in multi-page mode"
+msgstr "複数ページモードでの表示ページ数"

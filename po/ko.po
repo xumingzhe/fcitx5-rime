@@ -131,3 +131,11 @@ msgstr "동기화"
 #: src/rimeengine.h:100
 msgid "User data dir"
 msgstr "사용자 데이터 디렉터리"
+
+#: src/rimeengine.h:115
+msgid "Multi-page candidates (forces horizontal layout)"
+msgstr "다중 페이지 후보(가로 레이아웃 강제)"
+
+#: src/rimeengine.h:118
+msgid "Number of visible pages in multi-page mode"
+msgstr "다중 페이지 모드에서 표시할 페이지 수"

@@ -129,3 +129,11 @@ msgstr "Đồng bộ hóa"
 #: src/rimeengine.h:100
 msgid "User data dir"
 msgstr ""
+
+#: src/rimeengine.h:115
+msgid "Multi-page candidates (forces horizontal layout)"
+msgstr ""
+
+#: src/rimeengine.h:118
+msgid "Number of visible pages in multi-page mode"
+msgstr ""

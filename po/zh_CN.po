@@ -131,3 +131,11 @@ msgstr "同步"
 #: src/rimeengine.h:100
 msgid "User data dir"
 msgstr "用户数据目录"
+
+#: src/rimeengine.h:115
+msgid "Multi-page candidates (forces horizontal layout)"
+msgstr "多页候选词（强制横向布局）"
+
+#: src/rimeengine.h:118
+msgid "Number of visible pages in multi-page mode"
+msgstr "多页模式下可见页数"
