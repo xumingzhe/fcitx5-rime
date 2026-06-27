@@ -6,6 +6,7 @@
 #ifndef _FCITX_RIMESTATE_H_
 #define _FCITX_RIMESTATE_H_
 
+#include "async_query.h"
 #include "rimesession.h"
 #include <fcitx/event.h>
 #include <fcitx/globalconfig.h>
@@ -74,6 +75,12 @@ private:
     bool multiPageActive_ = false;
     int multiPageWindowStart_ = 0;
     int lastPageNo_ = -1;
+
+    // Accumulated committed text for AI context (fallback when
+    // surroundingText is unavailable from the application).
+    std::string lastCommitted_;
+    std::string lastSurrounding_;
+    int64_t lastCommitTime_ = 0;
 };
 } // namespace fcitx::rime
 

@@ -1,5 +1,6 @@
 set(RIME_SOURCES
     rimestate.cpp
+    async_query.cpp
     rimeengine.cpp
     rimecandidate.cpp
     rimesession.cpp

@@ -6,6 +6,7 @@
 #ifndef _FCITX_RIMEENGINE_H_
 #define _FCITX_RIMEENGINE_H_
 
+#include "async_query.h"
 #include "rimesession.h"
 #include "rimestate.h"
 #include <cstdint>
@@ -169,6 +170,8 @@ public:
     void allowNotification(std::string type = "");
     const auto &schemas() const { return schemas_; }
     const auto &optionActions() const { return optionActions_; };
+
+    std::unique_ptr<AsyncManager> asyncManager_;
 
 private:
     static void rimeNotificationHandler(void *context, RimeSessionId session,

@@ -231,6 +231,14 @@ RimeEngine::RimeEngine(Instance *instance)
 
     allowNotification("failure");
     reloadConfig();
+    asyncManager_ = std::make_unique<AsyncManager>(eventDispatcher_);
+    const auto *home = getenv("HOME");
+    const auto base = home ? std::string(home) + "/projects/pinyinDemo/" : "";
+    const std::string cloudScript = base + "async_query_worker.py";
+    const std::string aiScript = base + "deepseek_worker.py";
+    asyncManager_->registerQuery({"cloud_pinyin", 200, " ☁", 0.9, cloudScript});
+    asyncManager_->registerQuery({"deepseek", 300, " AI", 0.8, aiScript});
+    asyncManager_->start();
     constructed_ = true;
 }
 

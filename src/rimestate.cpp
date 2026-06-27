@@ -10,6 +10,7 @@
 #include "rimeengine.h"
 #include "rimesession.h"
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <fcitx-utils/capabilityflags.h>
@@ -75,6 +76,7 @@ RimeSessionId RimeState::session(bool requestNewSession) {
 }
 
 void RimeState::clear() {
+    if (engine_->asyncManager_) engine_->asyncManager_->onInputChanged();
     multiPageActive_ = false;
     lastPageNo_ = -1;
     if (auto session = this->session()) {
@@ -225,6 +227,11 @@ void RimeState::keyEvent(KeyEvent &event) {
     RIME_STRUCT(RimeCommit, commit);
     if (api->get_commit(session, &commit)) {
         ic->commitString(commit.text);
+        lastCommitted_ += commit.text;
+        if (lastCommitted_.size() > 200)
+            lastCommitted_ = lastCommitted_.substr(lastCommitted_.size() - 200);
+        lastCommitTime_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
         api->free_commit(&commit);
         engine_->instance()->resetCompose(ic);
     }
@@ -232,6 +239,30 @@ void RimeState::keyEvent(KeyEvent &event) {
     // Multi-page activation is handled in updateUI() by detecting
     // page changes, which works with any key binding configuration.
 
+    if (engine_->asyncManager_) {
+        if (const char *raw = api->get_input(this->session())) {
+            if (raw && std::strlen(raw) > 0) {
+                std::string context;
+                auto &st = ic->surroundingText();
+                if (st.isValid() && !st.text().empty()) {
+                    context = st.text().substr(0, st.cursor());
+                    if (context != lastSurrounding_) {
+                        if (context.find(lastCommitted_) == std::string::npos
+                            && lastCommitted_.find(context) == std::string::npos)
+                            lastCommitted_.clear();
+                        lastSurrounding_ = context;
+                    }
+                } else {
+                    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    if (now - lastCommitTime_ > 10000)
+                        lastCommitted_.clear();
+                    context = lastCommitted_;
+                }
+                engine_->asyncManager_->onKeyEvent(raw, context);
+            }
+        }
+    }
     updateUI(ic, event.isRelease());
     if (!event.isRelease() && !lastSchema.empty() &&
         lastSchema == currentSchema() && ic->inputPanel().empty() &&
@@ -396,6 +427,38 @@ void RimeState::updateUI(InputContext *ic, bool keyRelease) {
         inputPanel.reset();
     }
     bool oldEmptyExceptAux = emptyExceptAux(inputPanel);
+
+    if (engine_->asyncManager_) {
+        engine_->asyncManager_->insertCallback = [this, ic]() {
+            engine_->asyncManager_->pollResults(
+                [this, ic](const AsyncQueryResult &r) {
+                    if (r.candidates.empty())
+                        return;
+                    auto *api = engine_->api();
+                    auto session = this->session();
+                    if (!session || !api->find_session(session))
+                        return;
+                    RIME_STRUCT(RimeContext, ctx);
+                    if (!api->get_context(session, &ctx))
+                        return;
+                    if (ctx.menu.page_no != 0 ||
+                        ctx.menu.num_candidates == 0) {
+                        api->free_context(&ctx);
+                        return;
+                    }
+                    for (int i = 0; i < ctx.menu.num_candidates; ++i)
+                        if (ctx.menu.candidates[i].text ==
+                            r.candidates[0]) {
+                            api->free_context(&ctx);
+                            return;
+                        }
+                    api->free_context(&ctx);
+                    api->add_candidate(session, r.candidates[0].c_str(),
+                                       r.comment.c_str());
+                    this->updateUI(ic, false);
+                });
+        };
+    }
 
     do {
         auto *api = engine_->api();
